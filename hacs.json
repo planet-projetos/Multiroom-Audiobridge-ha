@@ -1,0 +1,6 @@
+{
+  "name": "Absolute Acoustics Autiobridge",
+  "render_readme": true,
+  "homeassistant": "2024.4.0",
+  "iot_class": "local_polling"
+}

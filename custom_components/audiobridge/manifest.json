@@ -1,11 +1,12 @@
 {
   "domain": "audiobridge",
   "name": "AudioBRIDGE Matrix",
-  "documentation": "https://github.com/usuario/audiobridge-ha",
+  "documentation": "https://github.com/planet-projetos/Multiroom-Audiobridge-ha",
+  "issue_tracker": "https://github.com/planet-projetos/Multiroom-Audiobridge-ha/issues",
   "dependencies": [],
-  "codeowners": ["@usuario"],
+  "codeowners": [],
   "requirements": [],
-  "version": "1.0.0",
+  "version": "0.1.0",
   "config_flow": true,
   "iot_class": "local_polling"
 }

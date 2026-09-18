@@ -3,7 +3,7 @@
   "name": "AudioBRIDGE Matrix",
   "documentation": "https://github.com/usuario/audiobridge-ha",
   "dependencies": [],
-  "codeowners": ["@seu_usuario"],
+  "codeowners": ["@usuario"],
   "requirements": [],
   "version": "1.0.0",
   "config_flow": true,

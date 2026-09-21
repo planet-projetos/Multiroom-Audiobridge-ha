@@ -25,7 +25,6 @@ Informe o endereço IP/hostname e a porta do controlador AudioBRIDGE.
 
 - A integração usa comunicação local via Telnet.
 - A porta padrão é 23.
-- O projeto ainda deve ser ajustado para o seu repositório GitHub antes da publicação pública final.
 
 ## Licença
 

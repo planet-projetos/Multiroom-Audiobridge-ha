@@ -1,0 +1,17 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configure AudioBRIDGE",
+        "description": "Enter the network host and port for your AudioBRIDGE controller.",
+        "data": {
+          "host": "Host",
+          "port": "Port"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to the AudioBRIDGE controller."
+    }
+  }
+}

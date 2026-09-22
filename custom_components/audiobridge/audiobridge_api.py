@@ -81,8 +81,9 @@ class AudioBridgeAPI:
         return "AudioBRIDGE Matrix"
 
     async def get_zone_status(self, controller_id: int, zone_id: int) -> dict:
-        """Consulta o estado completo de uma zona."""
-        raw_cmd = f"{controller_id}{zone_id}ST"
+        """Consulta o estado completo de uma zona usando o formato de zona do equipamento."""
+        zone_target = int(f"{controller_id}{zone_id}")
+        raw_cmd = f"{zone_target}PT00"
         res = await self.send_query(raw_cmd)
 
         data = {
@@ -116,16 +117,20 @@ class AudioBridgeAPI:
 
     async def set_power(self, controller_id: int, zone_id: int, state: bool):
         val = "01" if state else "00"
-        return await self.send_command(f"{controller_id}{zone_id}PR{val}")
+        zone_target = int(f"{controller_id}{zone_id}")
+        return await self.send_command(f"{zone_target}PR{val}")
 
     async def set_mute(self, controller_id: int, zone_id: int, state: bool):
         val = "01" if state else "00"
-        return await self.send_command(f"{controller_id}{zone_id}MU{val}")
+        zone_target = int(f"{controller_id}{zone_id}")
+        return await self.send_command(f"{zone_target}MU{val}")
 
     async def set_volume(self, controller_id: int, zone_id: int, vol_level: int):
         vol_str = f"{vol_level:02d}"
-        return await self.send_command(f"{controller_id}{zone_id}VO{vol_str}")
+        zone_target = int(f"{controller_id}{zone_id}")
+        return await self.send_command(f"{zone_target}VO{vol_str}")
 
     async def set_source(self, controller_id: int, zone_id: int, source_id: int):
         src_str = f"{source_id:02d}"
-        return await self.send_command(f"{controller_id}{zone_id}CH{src_str}")
+        zone_target = int(f"{controller_id}{zone_id}")
+        return await self.send_command(f"{zone_target}CH{src_str}")

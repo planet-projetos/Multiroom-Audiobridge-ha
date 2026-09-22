@@ -9,7 +9,8 @@ from .coordinator import AudioBridgeDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.MEDIA_PLAYER, Platform.BUTTON]
+PLATFORMS = [Platform.MEDIA_PLAYER, Platform.BUTTON, Platform.SWITCH]
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
@@ -27,7 +28,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "coordinator": coordinator,
     }
 
-    # Registra o ouvinte para atualizar entidades quando os nomes forem alterados nas Opções
     entry.async_on_unload(entry.add_update_listener(update_listener))
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

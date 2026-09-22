@@ -1,4 +1,6 @@
+import logging
 from homeassistant.components.media_player import (
+    MediaPlayerDeviceClass,
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
     MediaPlayerState,
@@ -8,6 +10,11 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN, SOURCES
+
+_LOGGER = logging.getLogger(__name__)
+
+# Volume máximo suportado pela AudioBRIDGE
+MAX_VOLUME_LEVEL = 38
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
@@ -19,11 +26,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
     entities = []
     for zone_id in range(1, 9):
-        # Lê o nome configurado pelo utilizador ou usa o padrão "AudioBRIDGE Zona X"
-        custom_name = config_entry.options.get(
+        zone_name = config_entry.options.get(
             f"zone_{zone_id}_name", f"Zona {zone_id}"
         )
-        full_name = f"AudioBRIDGE {custom_name}"
 
         entities.append(
             AudioBridgeZone(
@@ -34,7 +39,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 entry_id=config_entry.entry_id,
                 host=host,
                 model_name=model_name,
-                zone_name=full_name,
+                zone_name=zone_name,
             )
         )
 
@@ -42,6 +47,11 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
 
 class AudioBridgeZone(CoordinatorEntity, MediaPlayerEntity):
+    """Representa cada zona individual de áudio da matriz."""
+
+    # Define a classe como SPEAKER para liberar o ícone dinâmico do HA
+    _attr_device_class = MediaPlayerDeviceClass.SPEAKER
+
     def __init__(
         self,
         coordinator,
@@ -75,7 +85,8 @@ class AudioBridgeZone(CoordinatorEntity, MediaPlayerEntity):
         )
 
     @property
-    def supported_features(self):
+    def supported_features(self) -> MediaPlayerEntityFeature:
+        """Controles habilitados para a zona."""
         return (
             MediaPlayerEntityFeature.VOLUME_SET
             | MediaPlayerEntityFeature.VOLUME_MUTE
@@ -85,29 +96,41 @@ class AudioBridgeZone(CoordinatorEntity, MediaPlayerEntity):
         )
 
     @property
-    def zone_data(self):
+    def zone_data(self) -> dict:
+        """Dados da zona retornados pelo coordinator."""
         if self.coordinator.data and self._zone_id in self.coordinator.data:
             return self.coordinator.data[self._zone_id]
         return {}
 
     @property
-    def state(self):
-        return (
-            MediaPlayerState.ON
-            if self.zone_data.get("power", False)
-            else MediaPlayerState.OFF
-        )
+    def state(self) -> MediaPlayerState:
+        """Se a zona estiver desligada, retorna OFF (ocultando o volume na UI do HA)."""
+        is_powered = self.zone_data.get("power", False)
+        return MediaPlayerState.ON if is_powered else MediaPlayerState.OFF
 
     @property
-    def volume_level(self):
-        return self.zone_data.get("volume", 0) / 38.0
+    def icon(self) -> str:
+        """Ajusta o ícone dinamicamente para ficar idêntico ao AAT."""
+        if self.state == MediaPlayerState.ON:
+            if self.is_volume_muted:
+                return "mdi:speaker-off"
+            return "mdi:speaker"
+        return "mdi:cast-off"
 
     @property
-    def is_volume_muted(self):
+    def volume_level(self) -> float | None:
+        """Retorna o nível de volume normalizado de 0.0 a 1.0."""
+        if self.state != MediaPlayerState.ON:
+            return None
+        raw_vol = self.zone_data.get("volume", 0)
+        return min(max(raw_vol / float(MAX_VOLUME_LEVEL), 0.0), 1.0)
+
+    @property
+    def is_volume_muted(self) -> bool:
         return self.zone_data.get("mute", False)
 
     @property
-    def source(self):
+    def source(self) -> str:
         current_src_id = self.zone_data.get("source", 1)
         for name, src_id in SOURCES.items():
             if src_id == current_src_id:
@@ -115,27 +138,34 @@ class AudioBridgeZone(CoordinatorEntity, MediaPlayerEntity):
         return "Entrada 1"
 
     @property
-    def source_list(self):
+    def source_list(self) -> list[str]:
         return list(SOURCES.keys())
 
     async def async_turn_on(self):
+        """Liga a zona."""
         await self._api.set_power(self._controller_id, self._zone_id, True)
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self):
+        """Desliga a zona."""
         await self._api.set_power(self._controller_id, self._zone_id, False)
         await self.coordinator.async_request_refresh()
 
-    async def async_set_volume_level(self, volume):
-        vol_38 = int(volume * 38)
+    async def async_set_volume_level(self, volume: float):
+        """Ajusta o volume da zona convertendo 0.0..1.0 para 0..38."""
+        vol_38 = int(round(volume * MAX_VOLUME_LEVEL))
+        vol_38 = min(max(vol_38, 0), MAX_VOLUME_LEVEL)
+        
         await self._api.set_volume(self._controller_id, self._zone_id, vol_38)
         await self.coordinator.async_request_refresh()
 
-    async def async_mute_volume(self, mute):
+    async def async_mute_volume(self, mute: bool):
+        """Mutar / Desmutar zona."""
         await self._api.set_mute(self._controller_id, self._zone_id, mute)
         await self.coordinator.async_request_refresh()
 
-    async def async_select_source(self, source):
+    async def async_select_source(self, source: str):
+        """Mudar fonte de entrada."""
         if source in SOURCES:
             await self._api.set_source(
                 self._controller_id, self._zone_id, SOURCES[source]

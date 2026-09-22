@@ -11,15 +11,14 @@ class AudioBridgeAPI:
         self.port = port
 
     async def send_command(self, command: str) -> str:
-        """Envia um comando Telnet e lê a resposta."""
+        """Envia um comando Telnet pontual para a matriz."""
         try:
             reader, writer = await asyncio.wait_for(
                 asyncio.open_connection(self.host, self.port), timeout=3.0
             )
 
-            # Aguarda a mensagem inicial de boas-vindas se existir
             try:
-                await asyncio.wait_for(reader.read(1024), timeout=0.5)
+                await asyncio.wait_for(reader.read(1024), timeout=0.3)
             except asyncio.TimeoutError:
                 pass
 
@@ -27,10 +26,9 @@ class AudioBridgeAPI:
             writer.write(cmd_bytes)
             await writer.drain()
 
-            # Lê a resposta enviada pela matriz
             response = ""
             try:
-                data = await asyncio.wait_for(reader.read(1024), timeout=1.0)
+                data = await asyncio.wait_for(reader.read(1024), timeout=0.8)
                 response = data.decode("utf-8", errors="ignore")
             except asyncio.TimeoutError:
                 pass
@@ -44,43 +42,61 @@ class AudioBridgeAPI:
             return ""
 
     async def async_get_all_zones_status(self) -> dict:
-        """Consulta o estado real de todas as zonas (1 a 8)."""
+        """Consulta o estado de todas as zonas em UMA ÚNICA conexão Telnet."""
         status_dict = {}
 
-        # Loop pelas 8 zonas para obter o estado atualizado
+        # Inicializa o dicionário padrão para as 8 zonas
         for z in range(1, 9):
-            # Envia comando de consulta para a zona (ex: 11??)
-            response = await self.send_command(f"1{z}??")
-
-            # Valores padrão de fallback
-            power = False
-            volume = 0
-            mute = False
-            source = 1
-
-            if response:
-                # Interpreta retornos do tipo PR (Power), VO (Volume), MU (Mute) e CH (Source)
-                # Exemplo de resposta: > 11PR01 / > 11VO19 / > 11MU00 / > 11CH01
-                pr_match = re.search(r"1" + str(z) + r"PR(\d{2})", response)
-                vo_match = re.search(r"1" + str(z) + r"VO(\d{2})", response)
-                mu_match = re.search(r"1" + str(z) + r"MU(\d{2})", response)
-                ch_match = re.search(r"1" + str(z) + r"CH(\d{2})", response)
-
-                if pr_match:
-                    power = int(pr_match.group(1)) == 1
-                if vo_match:
-                    volume = int(vo_match.group(1))
-                if mu_match:
-                    mute = int(mu_match.group(1)) == 1
-                if ch_match:
-                    source = int(ch_match.group(1))
-
             status_dict[z] = {
-                "power": power,
-                "volume": volume,
-                "mute": mute,
-                "source": source,
+                "power": False,
+                "volume": 0,
+                "mute": False,
+                "source": 1,
             }
+
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(self.host, self.port), timeout=4.0
+            )
+
+            # Limpa buffer inicial de conexão
+            try:
+                await asyncio.wait_for(reader.read(1024), timeout=0.3)
+            except asyncio.TimeoutError:
+                pass
+
+            # Pergunta o estado de cada zona dentro da MESMA conexão
+            for z in range(1, 9):
+                cmd_bytes = f"> 1{z}??\r\n".encode("utf-8")
+                writer.write(cmd_bytes)
+                await writer.drain()
+
+                try:
+                    data = await asyncio.wait_for(reader.read(1024), timeout=0.4)
+                    response = data.decode("utf-8", errors="ignore")
+
+                    pr_match = re.search(r"1" + str(z) + r"PR(\d{2})", response)
+                    vo_match = re.search(r"1" + str(z) + r"VO(\d{2})", response)
+                    mu_match = re.search(r"1" + str(z) + r"MU(\d{2})", response)
+                    ch_match = re.search(r"1" + str(z) + r"CH(\d{2})", response)
+
+                    if pr_match:
+                        status_dict[z]["power"] = int(pr_match.group(1)) == 1
+                    if vo_match:
+                        status_dict[z]["volume"] = int(vo_match.group(1))
+                    if mu_match:
+                        status_dict[z]["mute"] = int(mu_match.group(1)) == 1
+                    if ch_match:
+                        status_dict[z]["source"] = int(ch_match.group(1))
+
+                except asyncio.TimeoutError:
+                    continue
+
+            writer.close()
+            await writer.wait_closed()
+
+        except Exception as err:
+            _LOGGER.warning("Falha ao consultar estado da AudioBRIDGE: %s", err)
 
         return status_dict
 

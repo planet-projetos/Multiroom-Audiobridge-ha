@@ -16,7 +16,7 @@ class AudioBridgeDataUpdateCoordinator(DataUpdateCoordinator):
             hass,
             _LOGGER,
             name=DOMAIN,
-            # Atualiza o estado no Home Assistant a cada 5 segundos
+            # Consulta a matriz a cada 10 segundos para não sobrecarregar
             update_interval=timedelta(seconds=10),
         )
         self.api = api
@@ -24,7 +24,6 @@ class AudioBridgeDataUpdateCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self):
         """Busca o estado atual de todas as zonas na matriz AudioBRIDGE."""
         try:
-            # Obtém o dicionário com o estado de todas as zonas (1 a 8)
             data = await self.api.async_get_all_zones_status()
             return data
         except Exception as err:

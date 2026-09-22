@@ -66,18 +66,18 @@ class AudioBridgeAPI:
             return ""
 
     async def send_command(self, command: str) -> str:
-        """Envia um comando de ação para a matriz."""
-        return await self._send_raw(f"> {command}")
+        """Envia um comando de ação para a matriz no formato bruto aceito pelo equipamento."""
+        return await self._send_raw(command)
 
     async def send_query(self, query: str) -> str:
-        """Envia um comando de consulta para a matriz."""
-        return await self._send_raw(f"# {query}")
+        """Envia um comando de consulta para a matriz no formato bruto aceito pelo equipamento."""
+        return await self._send_raw(query)
 
     async def get_model(self) -> str:
         """Consulta o modelo do equipamento."""
         res = await self.send_query("10M")
         if res:
-            return res.replace("<", "").strip()
+            return res.replace("<", "").replace(">", "").strip()
         return "AudioBRIDGE Matrix"
 
     async def get_zone_status(self, controller_id: int, zone_id: int) -> dict:

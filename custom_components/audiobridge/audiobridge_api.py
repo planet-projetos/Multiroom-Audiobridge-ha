@@ -40,6 +40,7 @@ class AudioBridgeAPI:
             writer.close()
             await writer.wait_closed()
 
+            _LOGGER.warning("RAW RESPONSE: %r", response)
             _LOGGER.debug(
                 "Enviado para AudioBRIDGE (%s): %s | Resposta: %s",
                 self.host,

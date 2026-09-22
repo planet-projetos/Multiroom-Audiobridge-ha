@@ -1,31 +1,30 @@
-import logging
 from datetime import timedelta
+import logging
 
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import DOMAIN
+from .audiobridge_api import AudioBridgeAPI
 
 _LOGGER = logging.getLogger(__name__)
 
-
 class AudioBridgeDataUpdateCoordinator(DataUpdateCoordinator):
-    """Gerencia a consulta periódica de estado da matriz AudioBRIDGE."""
-
-    def __init__(self, hass, api):
+    def __init__(self, hass: HomeAssistant, api: AudioBridgeAPI):
         super().__init__(
             hass,
             _LOGGER,
-            name=DOMAIN,
-            # Atualiza o estado no Home Assistant a cada 5 segundos
-            update_interval=timedelta(seconds=5),
+            name="AudioBRIDGE Update Coordinator",
+            update_interval=timedelta(seconds=10),
         )
         self.api = api
 
     async def _async_update_data(self):
-        """Busca o estado atual de todas as zonas na matriz AudioBRIDGE."""
+        """Consulta o status de todas as 8 zonas sequencialmente."""
+        data = {}
         try:
-            # Obtém o dicionário com o estado de todas as zonas (1 a 8)
-            data = await self.api.async_get_all_zones_status()
+            for zone_id in range(1, 9):
+                zone_data = await self.api.get_zone_status(1, zone_id)
+                data[zone_id] = zone_data
             return data
         except Exception as err:
-            raise UpdateFailed(f"Erro ao comunicar com a AudioBRIDGE: {err}")
+            raise UpdateFailed(f"Erro ao atualizar dados do AudioBRIDGE: {err}")

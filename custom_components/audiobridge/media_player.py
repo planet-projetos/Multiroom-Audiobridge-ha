@@ -3,57 +3,57 @@ from homeassistant.components.media_player import (
     MediaPlayerEntityFeature,
     MediaPlayerState,
 )
-from homeassistant.const import CONF_HOST, CONF_PORT
+from homeassistant.const import CONF_HOST
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .audiobridge_api import AudioBridgeAPI
-from .const import DOMAIN
-
-SOURCES = {
-    "Entrada 1": 1,
-    "Entrada 2": 2,
-    "Entrada 3": 3,
-    "Entrada 4": 4,
-    "Entrada 5": 5,
-    "Entrada 6": 6,
-    "Entrada 7": 7,
-    "Entrada 8": 8,
-}
+from .const import DOMAIN, SOURCES
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
-    data = hass.data[DOMAIN][config_entry.entry_id]
-    api = AudioBridgeAPI(data[CONF_HOST], data[CONF_PORT])
-
-    model_name = data.get("model", "AudioBRIDGE Matrix")
-    host = data[CONF_HOST]
+    entry_data = hass.data[DOMAIN][config_entry.entry_id]
+    api = entry_data["api"]
+    coordinator = entry_data["coordinator"]
+    host = config_entry.data[CONF_HOST]
+    model_name = config_entry.data.get("model", "AudioBRIDGE Matrix")
 
     entities = []
     for zone_id in range(1, 9):
+        # Lê o nome configurado pelo utilizador ou usa o padrão "AudioBRIDGE Zona X"
+        custom_name = config_entry.options.get(
+            f"zone_{zone_id}_name", f"Zona {zone_id}"
+        )
+        full_name = f"AudioBRIDGE {custom_name}"
+
         entities.append(
             AudioBridgeZone(
+                coordinator=coordinator,
                 api=api,
                 controller_id=1,
                 zone_id=zone_id,
                 entry_id=config_entry.entry_id,
                 host=host,
                 model_name=model_name,
+                zone_name=full_name,
             )
         )
 
-    async_add_entities(entities, update_before_add=True)
+    async_add_entities(entities)
 
 
-class AudioBridgeZone(MediaPlayerEntity):
+class AudioBridgeZone(CoordinatorEntity, MediaPlayerEntity):
     def __init__(
         self,
-        api: AudioBridgeAPI,
+        coordinator,
+        api,
         controller_id: int,
         zone_id: int,
         entry_id: str,
         host: str,
         model_name: str,
+        zone_name: str,
     ):
+        super().__init__(coordinator)
         self._api = api
         self._controller_id = controller_id
         self._zone_id = zone_id
@@ -61,17 +61,11 @@ class AudioBridgeZone(MediaPlayerEntity):
         self._host = host
         self._model_name = model_name
 
-        self._attr_name = f"AudioBRIDGE Zona {zone_id}"
+        self._attr_name = zone_name
         self._attr_unique_id = f"audiobridge_{entry_id}_zone_{zone_id}"
-
-        self._state = MediaPlayerState.OFF
-        self._volume = 0.0
-        self._is_mute = False
-        self._source = "Entrada 1"
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Cria e vincula esta entidade ao Dispositivo Pai (Matriz AudioBRIDGE)."""
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry_id)},
             name=f"AudioBRIDGE ({self._host})",
@@ -91,72 +85,59 @@ class AudioBridgeZone(MediaPlayerEntity):
         )
 
     @property
+    def zone_data(self):
+        if self.coordinator.data and self._zone_id in self.coordinator.data:
+            return self.coordinator.data[self._zone_id]
+        return {}
+
+    @property
     def state(self):
-        return self._state
+        return (
+            MediaPlayerState.ON
+            if self.zone_data.get("power", False)
+            else MediaPlayerState.OFF
+        )
 
     @property
     def volume_level(self):
-        return self._volume / 38.0  # Mapeia de 0..38 para 0.0..1.0
+        return self.zone_data.get("volume", 0) / 38.0
 
     @property
     def is_volume_muted(self):
-        return self._is_mute
+        return self.zone_data.get("mute", False)
 
     @property
     def source(self):
-        return self._source
+        current_src_id = self.zone_data.get("source", 1)
+        for name, src_id in SOURCES.items():
+            if src_id == current_src_id:
+                return name
+        return "Entrada 1"
 
     @property
     def source_list(self):
         return list(SOURCES.keys())
 
-    async def async_update(self):
-        """Lê o status da zona e atualiza as variáveis da entidade."""
-        data = await self._api.get_zone_status(self._controller_id, self._zone_id)
-
-        if not data:
-            return
-
-        self._state = (
-            MediaPlayerState.ON if data.get("power", False) else MediaPlayerState.OFF
-        )
-        self._is_mute = data.get("mute", False)
-        self._volume = data.get("volume", 0)
-
-        for name, src_id in SOURCES.items():
-            if src_id == data.get("source", 1):
-                self._source = name
-
     async def async_turn_on(self):
-        """Liga a zona e avisa a interface do HA imediatamente."""
         await self._api.set_power(self._controller_id, self._zone_id, True)
-        self._state = MediaPlayerState.ON
-        self.async_write_ha_state()
+        await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self):
-        """Desliga a zona e avisa a interface do HA imediatamente."""
         await self._api.set_power(self._controller_id, self._zone_id, False)
-        self._state = MediaPlayerState.OFF
-        self.async_write_ha_state()
+        await self.coordinator.async_request_refresh()
 
     async def async_set_volume_level(self, volume):
-        """Ajusta o volume (0.0 a 1.0) para a escala 0 a 38."""
         vol_38 = int(volume * 38)
         await self._api.set_volume(self._controller_id, self._zone_id, vol_38)
-        self._volume = vol_38
-        self.async_write_ha_state()
+        await self.coordinator.async_request_refresh()
 
     async def async_mute_volume(self, mute):
-        """Ativa ou desativa o mute."""
         await self._api.set_mute(self._controller_id, self._zone_id, mute)
-        self._is_mute = mute
-        self.async_write_ha_state()
+        await self.coordinator.async_request_refresh()
 
     async def async_select_source(self, source):
-        """Muda a fonte de entrada de áudio."""
         if source in SOURCES:
             await self._api.set_source(
                 self._controller_id, self._zone_id, SOURCES[source]
             )
-            self._source = source
-            self.async_write_ha_state()
+            await self.coordinator.async_request_refresh()

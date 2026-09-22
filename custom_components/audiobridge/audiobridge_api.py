@@ -4,48 +4,13 @@ import re
 
 _LOGGER = logging.getLogger(__name__)
 
-
 class AudioBridgeAPI:
     def __init__(self, host: str, port: int = 23):
         self.host = host
         self.port = port
 
-    async def _read_response(self, reader) -> str:
-        """Lê a resposta do socket sem perder o conteúdo do banner de boas-vindas."""
-        chunks = []
-        deadline = asyncio.get_running_loop().time() + 5
-
-        while asyncio.get_running_loop().time() < deadline:
-            try:
-                chunk = await asyncio.wait_for(reader.read(4096), timeout=1)
-            except asyncio.TimeoutError:
-                break
-
-            if not chunk:
-                break
-
-            chunks.append(chunk)
-            if len(chunk) < 4096:
-                break
-
-        data = b"".join(chunks)
-        response = data.decode("utf-8", errors="ignore").strip()
-
-        if not response:
-            return ""
-
-        lines = [line.strip() for line in response.splitlines() if line.strip()]
-        clean_lines = [
-            line for line in lines if "Welcome to telnet" not in line and line not in (">", "#")
-        ]
-
-        if clean_lines:
-            response = clean_lines[0]
-
-        return response
-
     async def _send_raw(self, payload: str) -> str:
-        """Envia a string formatada e trata a recepção via Telnet."""
+        """Envia comandos via Telnet tratando o buffer e a resposta."""
         try:
             reader, writer = await asyncio.wait_for(
                 asyncio.open_connection(self.host, self.port), timeout=5
@@ -55,47 +20,50 @@ class AudioBridgeAPI:
             writer.write(cmd_formatted)
             await writer.drain()
 
-            response = await self._read_response(reader)
+            await asyncio.sleep(0.1)
+
+            data = await asyncio.wait_for(reader.read(1024), timeout=5)
+            response = data.decode("utf-8", errors="ignore").strip()
+
+            if "Welcome to telnet" in response:
+                lines = response.splitlines()
+                clean_lines = [l.strip() for l in lines if "Welcome to telnet" not in l and l.strip()]
+                if clean_lines:
+                    response = clean_lines[0]
+                else:
+                    data = await asyncio.wait_for(reader.read(1024), timeout=5)
+                    response = data.decode("utf-8", errors="ignore").strip()
 
             writer.close()
             await writer.wait_closed()
 
-            _LOGGER.debug("Enviado: %s | Resposta: %s", payload, response)
+            _LOGGER.debug("Enviado para AudioBRIDGE (%s): %s | Resposta: %s", self.host, payload, response)
             return response
 
         except asyncio.TimeoutError:
-            _LOGGER.error(
-                "Timeout de conexão Telnet com AudioBRIDGE em %s:%s",
-                self.host,
-                self.port,
-            )
+            _LOGGER.error("Timeout na comunicação Telnet com AudioBRIDGE em %s:%s", self.host, self.port)
             return ""
         except Exception as err:
-            _LOGGER.error(
-                "Erro na comunicação Telnet com AudioBRIDGE em %s:%s - %s",
-                self.host,
-                self.port,
-                err,
-            )
+            _LOGGER.error("Erro na comunicação Telnet com AudioBRIDGE em %s:%s - %s", self.host, self.port, err)
             return ""
 
     async def send_command(self, command: str) -> str:
-        """Envia comandos de ação/escrita iniciados por '> '."""
+        """Comandos de ação com o prefixo '> '."""
         return await self._send_raw(f"> {command}")
 
     async def send_query(self, query: str) -> str:
-        """Envia requisições de estado/status iniciadas por '# '."""
+        """Comandos de consulta com o prefixo '# '."""
         return await self._send_raw(f"# {query}")
 
     async def get_model(self) -> str:
-        """Consulta o modelo do equipamento via comando de status # 10M."""
+        """Consulta o modelo do equipamento via # 10M."""
         res = await self.send_query("10M")
         if res:
             return res.replace("<", "").strip()
         return "AudioBRIDGE Matrix"
 
     async def get_zone_status(self, controller_id: int, zone_id: int) -> dict:
-        """Consulta o status completo de uma zona usando # XYST (ex: # 11ST)."""
+        """Consulta o estado completo de uma zona (# XYST)."""
         raw_cmd = f"{controller_id}{zone_id}ST"
         res = await self.send_query(raw_cmd)
 
@@ -103,18 +71,18 @@ class AudioBridgeAPI:
             "power": False,
             "mute": False,
             "volume": 0,
-            "source": 1,
+            "source": 1
         }
 
         if "PR" in res:
             pr_match = re.search(r"PR(\d{2})", res)
             if pr_match:
-                data["power"] = pr_match.group(1) != "00"
+                data["power"] = pr_match.group(1) == "01"
 
         if "MU" in res:
             mu_match = re.search(r"MU(\d{2})", res)
             if mu_match:
-                data["mute"] = mu_match.group(1) != "00"
+                data["mute"] = mu_match.group(1) == "01"
 
         if "VO" in res:
             vo_match = re.search(r"VO(\d{2})", res)
@@ -130,16 +98,16 @@ class AudioBridgeAPI:
 
     async def set_power(self, controller_id: int, zone_id: int, state: bool):
         val = "01" if state else "00"
-        await self.send_command(f"{controller_id}{zone_id}PR{val}")
+        return await self.send_command(f"{controller_id}{zone_id}PR{val}")
 
     async def set_mute(self, controller_id: int, zone_id: int, state: bool):
         val = "01" if state else "00"
-        await self.send_command(f"{controller_id}{zone_id}MU{val}")
+        return await self.send_command(f"{controller_id}{zone_id}MU{val}")
 
     async def set_volume(self, controller_id: int, zone_id: int, vol_level: int):
         vol_str = f"{vol_level:02d}"
-        await self.send_command(f"{controller_id}{zone_id}VO{vol_str}")
+        return await self.send_command(f"{controller_id}{zone_id}VO{vol_str}")
 
     async def set_source(self, controller_id: int, zone_id: int, source_id: int):
         src_str = f"{source_id:02d}"
-        await self.send_command(f"{controller_id}{zone_id}CH{src_str}")
+        return await self.send_command(f"{controller_id}{zone_id}CH{src_str}")

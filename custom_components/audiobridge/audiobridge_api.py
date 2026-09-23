@@ -84,7 +84,7 @@ class AudioBridgeAPI:
                 return model_match.group(1).strip()
         return "AudioBRIDGE Matrix"
 
-    async def get_zone_status(self, controller_id: int, zone_id: int) -> dict:
+    async def get_zone_status(self, controller_id: int, zone_id: int) -> dict | None:
         """Consulta o estado completo de uma zona usando o formato de zona do equipamento."""
         zone_target = int(f"{controller_id}{zone_id}")
         raw_cmd = f"{zone_target}PT00"
@@ -95,7 +95,9 @@ class AudioBridgeAPI:
             "mute": False,
             "volume": 0,
             "source": 1,
+            "_valid": False,
         }
+        found_field = False
 
         for field, pattern in (
             ("power", r"PR(\d{2})"),
@@ -105,10 +107,21 @@ class AudioBridgeAPI:
         ):
             match = re.search(pattern, res)
             if match:
+                found_field = True
                 value = int(match.group(1))
                 data[field] = value == 1 if field in ("power", "mute") else value
 
-        return data
+        data["_valid"] = found_field
+        return data if found_field else None
+
+    async def get_power_status(self, controller_id: int) -> dict[int, bool]:
+        """Consulta o power de todas as zonas usando a consulta global do equipamento."""
+        res = await self.send_query(f"{controller_id}0PR")
+        power_status = {}
+        for match in re.finditer(r"<(?:\s*)?(\d)(\d)PR(\d{2})", res):
+            zone_id = int(match.group(2))
+            power_status[zone_id] = match.group(3) == "01"
+        return power_status
 
     async def set_power(self, controller_id: int, zone_id: int, state: bool):
         val = "01" if state else "00"

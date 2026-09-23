@@ -20,10 +20,17 @@ class AudioBridgeDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self):
         """Consulta o status de todas as 8 zonas sequencialmente."""
+        previous_data = self.data or {}
         data = {}
         try:
+            power_status = await self.api.get_power_status(1)
             for zone_id in range(1, 9):
                 zone_data = await self.api.get_zone_status(1, zone_id)
+                if zone_data is None:
+                    zone_data = dict(previous_data.get(zone_id, {}))
+                if zone_id in power_status:
+                    zone_data["power"] = power_status[zone_id]
+                    zone_data["_valid"] = True
                 data[zone_id] = zone_data
             return data
         except Exception as err:

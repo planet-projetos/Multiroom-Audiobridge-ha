@@ -142,8 +142,9 @@ class AudioBridgeZone(CoordinatorEntity, MediaPlayerEntity):
         return list(SOURCES.keys())
 
     def _handle_coordinator_update(self) -> None:
-        """Limpa o estado otimista quando o coordinator atualiza os dados reais."""
-        self._assumed_power = None
+        """Limpa o estado otimista somente após receber power válido."""
+        if self.zone_data.get("_valid", False):
+            self._assumed_power = None
         super()._handle_coordinator_update()
 
     async def async_turn_on(self):

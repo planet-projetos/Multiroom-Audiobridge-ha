@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -23,6 +24,15 @@ def test_names_schema_includes_zone_and_source_fields():
     assert "source_1_name" in schema.schema
     assert "zone_8_name" in schema.schema
     assert "source_8_name" in schema.schema
+
+
+def test_strings_json_has_options_step_at_root_level():
+    strings_path = ROOT / "custom_components" / "audiobridge" / "strings.json"
+    data = json.loads(strings_path.read_text(encoding="utf-8"))
+
+    assert "options" in data
+    assert "options" not in data["config"]
+    assert "init" in data["options"]["step"]
 
 
 def test_parse_zone_status_response_reads_source_from_ch_field():

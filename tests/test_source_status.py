@@ -35,6 +35,12 @@ def test_strings_json_has_options_step_at_root_level():
     assert "init" in data["options"]["step"]
 
 
+def test_options_flow_handler_can_be_initialized_without_assigning_config_entry():
+    flow = config_flow.AudioBridgeOptionsFlowHandler()
+
+    assert flow is not None
+
+
 def test_parse_zone_status_response_reads_source_from_ch_field():
     payload = "< 11PT00PR01MU00VO09CH03"
 

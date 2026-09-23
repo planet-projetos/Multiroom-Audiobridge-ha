@@ -8,7 +8,7 @@ from homeassistant.const import CONF_HOST
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, SOURCES
+from .const import DEFAULT_SOURCE_NAMES, DEFAULT_ZONE_NAMES, DOMAIN, SOURCES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -21,11 +21,19 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     coordinator = entry_data["coordinator"]
     host = config_entry.data[CONF_HOST]
     model_name = config_entry.data.get("model", "AudioBRIDGE Matrix")
+    source_names = {
+        source_id: config_entry.options.get(
+            f"source_{source_id}_name",
+            DEFAULT_SOURCE_NAMES[f"source_{source_id}_name"],
+        )
+        for source_id in range(1, 9)
+    }
 
     entities = []
     for zone_id in range(1, 9):
         zone_name = config_entry.options.get(
-            f"zone_{zone_id}_name", f"Zona {zone_id}"
+            f"zone_{zone_id}_name",
+            DEFAULT_ZONE_NAMES[f"zone_{zone_id}_name"],
         )
 
         entities.append(
@@ -38,6 +46,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 host=host,
                 model_name=model_name,
                 zone_name=zone_name,
+                source_names=source_names,
             )
         )
 
@@ -57,6 +66,7 @@ class AudioBridgeZone(CoordinatorEntity, MediaPlayerEntity):
         host: str,
         model_name: str,
         zone_name: str,
+        source_names: dict[int, str],
     ):
         super().__init__(coordinator)
         self._api = api
@@ -65,10 +75,11 @@ class AudioBridgeZone(CoordinatorEntity, MediaPlayerEntity):
         self._entry_id = entry_id
         self._host = host
         self._model_name = model_name
+        self._source_names = source_names
 
         self._attr_name = zone_name
         self._attr_unique_id = f"audiobridge_{entry_id}_zone_{zone_id}"
-        
+
         # Estado interno de apoio para resposta imediata ao clicar no botão
         self._assumed_power = None
         self._assumed_source = None
@@ -132,18 +143,15 @@ class AudioBridgeZone(CoordinatorEntity, MediaPlayerEntity):
 
     @property
     def source(self) -> str:
-        if self._assumed_source is not None and self._assumed_source in SOURCES:
+        if self._assumed_source is not None:
             return self._assumed_source
 
         current_src_id = self.zone_data.get("source", 1)
-        for name, src_id in SOURCES.items():
-            if src_id == current_src_id:
-                return name
-        return "Entrada 1"
+        return self._source_names.get(current_src_id, DEFAULT_SOURCE_NAMES[f"source_{current_src_id}_name"])
 
     @property
     def source_list(self) -> list[str]:
-        return list(SOURCES.keys())
+        return list(self._source_names.values())
 
     def _handle_coordinator_update(self) -> None:
         """Limpa o estado otimista somente após receber dados válidos."""
@@ -184,10 +192,12 @@ class AudioBridgeZone(CoordinatorEntity, MediaPlayerEntity):
 
     async def async_select_source(self, source: str):
         """Seleção de entrada de áudio."""
-        if source in SOURCES:
+        source_id = next(
+            (src_id for src_id, name in self._source_names.items() if name == source),
+            None,
+        )
+        if source_id is not None:
             self._assumed_source = source
             self.async_write_ha_state()
-            await self._api.set_source(
-                self._controller_id, self._zone_id, SOURCES[source]
-            )
+            await self._api.set_source(self._controller_id, self._zone_id, source_id)
             await self.coordinator.async_request_refresh()

@@ -123,6 +123,15 @@ class AudioBridgeAPI:
             power_status[zone_id] = match.group(3) == "01"
         return power_status
 
+    async def get_volume_status(self, controller_id: int) -> dict[int, int]:
+        """Consulta o volume de todas as zonas usando a consulta global do equipamento."""
+        res = await self.send_query(f"{controller_id}0VO")
+        volume_status = {}
+        for match in re.finditer(r"<(?:\s*)?(\d)(\d)VO(\d{1,2})", res):
+            zone_id = int(match.group(2))
+            volume_status[zone_id] = int(match.group(3))
+        return volume_status
+
     async def set_power(self, controller_id: int, zone_id: int, state: bool):
         val = "01" if state else "00"
         zone_target = int(f"{controller_id}{zone_id}")

@@ -57,63 +57,82 @@ class AudioBridgeAPI:
     def __init__(self, host: str, port: int = 23):
         self.host = host
         self.port = port
+        self._reader = None
+        self._writer = None
+        self._connection_lock = asyncio.Lock()
+
+    async def _close_connection(self) -> None:
+        if self._writer is not None:
+            self._writer.close()
+            try:
+                await self._writer.wait_closed()
+            except (ConnectionError, OSError):
+                pass
+        self._reader = None
+        self._writer = None
+
+    async def async_close(self) -> None:
+        """Fecha a conexão Telnet quando a integração é descarregada."""
+        async with self._connection_lock:
+            await self._close_connection()
 
     async def _send_raw(self, payload: str) -> str:
         """Envia comandos via Telnet e trata a resposta bruta do equipamento."""
-        writer = None
-        try:
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(self.host, self.port), timeout=5
-            )
+        async with self._connection_lock:
+            try:
+                if self._writer is None or self._writer.is_closing():
+                    self._reader, self._writer = await asyncio.wait_for(
+                        asyncio.open_connection(self.host, self.port), timeout=5
+                    )
 
-            writer.write(f"{payload}\r\n".encode("utf-8"))
-            await writer.drain()
-            chunks = []
-            while True:
-                try:
-                    data = await asyncio.wait_for(reader.read(1024), timeout=0.5)
-                except asyncio.TimeoutError:
-                    break
-                if not data:
-                    break
-                chunks.append(data)
+                self._writer.write(f"{payload}\r\n".encode("utf-8"))
+                await self._writer.drain()
+                chunks = []
+                connection_closed = False
+                while True:
+                    try:
+                        data = await asyncio.wait_for(self._reader.read(1024), timeout=0.5)
+                    except asyncio.TimeoutError:
+                        break
+                    if not data:
+                        connection_closed = True
+                        break
+                    chunks.append(data)
 
-            response = b"".join(chunks).decode("utf-8", errors="ignore")
-            response_lines = [
-                line.strip()
-                for line in response.splitlines()
-                if line.strip() and "Welcome to telnet" not in line
-            ]
-            response = "\n".join(response_lines)
+                response = b"".join(chunks).decode("utf-8", errors="ignore")
+                response_lines = [
+                    line.strip()
+                    for line in response.splitlines()
+                    if line.strip() and "Welcome to telnet" not in line
+                ]
+                response = "\n".join(response_lines)
 
-            _LOGGER.debug("RAW RESPONSE: %r", response)
-            _LOGGER.debug(
-                "Enviado para AudioBRIDGE (%s): %s | Resposta: %s",
-                self.host,
-                payload,
-                response,
-            )
-            return response
+                _LOGGER.debug("RAW RESPONSE: %r", response)
+                _LOGGER.debug(
+                    "Enviado para AudioBRIDGE (%s): %s | Resposta: %s",
+                    self.host,
+                    payload,
+                    response,
+                )
+                if connection_closed:
+                    await self._close_connection()
+                return response
 
-        except asyncio.TimeoutError:
-            _LOGGER.error(
-                "Timeout na comunicação Telnet com AudioBRIDGE em %s:%s",
-                self.host,
-                self.port,
-            )
+            except asyncio.TimeoutError:
+                _LOGGER.error(
+                    "Timeout na comunicação Telnet com AudioBRIDGE em %s:%s",
+                    self.host,
+                    self.port,
+                )
+            except Exception as err:
+                _LOGGER.error(
+                    "Erro na comunicação Telnet com AudioBRIDGE em %s:%s - %s",
+                    self.host,
+                    self.port,
+                    err,
+                )
+            await self._close_connection()
             return ""
-        except Exception as err:
-            _LOGGER.error(
-                "Erro na comunicação Telnet com AudioBRIDGE em %s:%s - %s",
-                self.host,
-                self.port,
-                err,
-            )
-            return ""
-        finally:
-            if writer is not None:
-                writer.close()
-                await writer.wait_closed()
 
     async def send_command(self, command: str) -> str:
         """Envia um comando de ação usando o prefixo do protocolo."""

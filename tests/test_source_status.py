@@ -1,4 +1,5 @@
 import importlib.util
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -16,6 +17,38 @@ MODULE = importlib.util.module_from_spec(MODULE_SPEC)
 assert MODULE_SPEC is not None and MODULE_SPEC.loader is not None
 MODULE_SPEC.loader.exec_module(MODULE)
 parse_zone_status_response = MODULE.parse_zone_status_response
+
+
+class _FakeTelnetReader:
+    def __init__(self, responses):
+        self._responses = iter(responses)
+
+    async def read(self, _size):
+        response = next(self._responses)
+        if response == "timeout":
+            raise asyncio.TimeoutError
+        return response
+
+
+class _FakeTelnetWriter:
+    def __init__(self):
+        self.commands = []
+        self.closed = False
+
+    def is_closing(self):
+        return self.closed
+
+    def write(self, payload):
+        self.commands.append(payload)
+
+    async def drain(self):
+        return None
+
+    def close(self):
+        self.closed = True
+
+    async def wait_closed(self):
+        return None
 
 
 def test_names_schema_includes_zone_and_source_fields():
@@ -51,6 +84,30 @@ def test_options_flow_factory_uses_framework_managed_config_entry():
 def test_parse_group_zone_ids_handles_ranges_and_lists():
     assert parse_group_zone_ids("1-3,5,8") == [1, 2, 3, 5, 8]
     assert parse_group_zone_ids([1, "3-4", 8]) == [1, 3, 4, 8]
+
+
+def test_api_reuses_telnet_connection(monkeypatch):
+    reader = _FakeTelnetReader([b"first", "timeout", b"second", "timeout"])
+    writer = _FakeTelnetWriter()
+    connections = []
+
+    async def fake_open_connection(_host, _port):
+        connections.append((reader, writer))
+        return reader, writer
+
+    monkeypatch.setattr(MODULE.asyncio, "open_connection", fake_open_connection)
+
+    async def exercise_connection():
+        api = MODULE.AudioBridgeAPI("127.0.0.1")
+
+        assert await api.send_query("one") == "first"
+        assert await api.send_query("two") == "second"
+        assert len(connections) == 1
+        assert writer.commands == [b"# one\r\n", b"# two\r\n"]
+
+        await api.async_close()
+
+    asyncio.run(exercise_connection())
 
 
 def test_groups_schema_includes_group_fields():

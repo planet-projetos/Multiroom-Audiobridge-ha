@@ -71,6 +71,7 @@ class AudioBridgeZone(CoordinatorEntity, MediaPlayerEntity):
         
         # Estado interno de apoio para resposta imediata ao clicar no botão
         self._assumed_power = None
+        self._assumed_source = None
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -131,6 +132,9 @@ class AudioBridgeZone(CoordinatorEntity, MediaPlayerEntity):
 
     @property
     def source(self) -> str:
+        if self._assumed_source is not None and self._assumed_source in SOURCES:
+            return self._assumed_source
+
         current_src_id = self.zone_data.get("source", 1)
         for name, src_id in SOURCES.items():
             if src_id == current_src_id:
@@ -142,9 +146,11 @@ class AudioBridgeZone(CoordinatorEntity, MediaPlayerEntity):
         return list(SOURCES.keys())
 
     def _handle_coordinator_update(self) -> None:
-        """Limpa o estado otimista somente após receber power válido."""
+        """Limpa o estado otimista somente após receber dados válidos."""
         if self.zone_data.get("_valid", False):
             self._assumed_power = None
+            if "source" in self.zone_data:
+                self._assumed_source = None
         super()._handle_coordinator_update()
 
     async def async_turn_on(self):
@@ -179,6 +185,8 @@ class AudioBridgeZone(CoordinatorEntity, MediaPlayerEntity):
     async def async_select_source(self, source: str):
         """Seleção de entrada de áudio."""
         if source in SOURCES:
+            self._assumed_source = source
+            self.async_write_ha_state()
             await self._api.set_source(
                 self._controller_id, self._zone_id, SOURCES[source]
             )

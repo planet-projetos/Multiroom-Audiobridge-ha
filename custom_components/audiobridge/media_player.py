@@ -89,6 +89,8 @@ class AudioBridgeZone(CoordinatorEntity, MediaPlayerEntity):
             MediaPlayerEntityFeature.VOLUME_SET
             | MediaPlayerEntityFeature.VOLUME_STEP
             | MediaPlayerEntityFeature.VOLUME_MUTE
+            | MediaPlayerEntityFeature.TURN_ON
+            | MediaPlayerEntityFeature.TURN_OFF
             | MediaPlayerEntityFeature.SELECT_SOURCE
         )
 

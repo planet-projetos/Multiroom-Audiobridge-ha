@@ -14,7 +14,7 @@ class AudioBridgeDataUpdateCoordinator(DataUpdateCoordinator):
             hass,
             _LOGGER,
             name="AudioBRIDGE Update Coordinator",
-            update_interval=timedelta(seconds=10),
+            update_interval=timedelta(seconds=5),
         )
         self.api = api
 

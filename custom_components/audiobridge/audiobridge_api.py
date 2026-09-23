@@ -12,11 +12,14 @@ def parse_zone_status_response(response: str, previous_source: int | None = None
         "mute": False,
         "volume": 0,
         "source": previous_source if previous_source is not None else 1,
+        "group": 0,
         "_valid": False,
+        "_source_confirmed": False,
     }
     found_field = False
 
     for field, pattern in (
+        ("group", r"(?i)(?:^|[^A-Z])PT(?:\s*)0*(\d{1,2})(?=PR)"),
         ("power", r"(?i)(?:^|[^A-Z])PR(?:\s*)0*(\d{1,2})(?!\d)"),
         ("mute", r"(?i)(?:^|[^A-Z])MU(?:\s*)0*(\d{1,2})(?!\d)"),
         ("volume", r"(?i)(?:^|[^A-Z])VO(?:\s*)0*(\d{1,2})(?!\d)"),
@@ -28,11 +31,14 @@ def parse_zone_status_response(response: str, previous_source: int | None = None
 
         found_field = True
         value = int(match.group(1))
-        if field in ("power", "mute"):
+        if field == "group":
+            data[field] = value if 0 <= value <= 3 else 0
+        elif field in ("power", "mute"):
             data[field] = bool(value)
         elif field == "source":
             if 1 <= value <= 8:
                 data[field] = value
+                data["_source_confirmed"] = True
             elif previous_source is not None:
                 data[field] = previous_source
             else:
@@ -40,7 +46,7 @@ def parse_zone_status_response(response: str, previous_source: int | None = None
         else:
             data[field] = value
 
-    if previous_source is not None and not re.search(r"(?i)(?:^|[^A-Z])CH(?:\s*)0*(\d{1,2})(?!\d)", response):
+    if previous_source is not None and not data["_source_confirmed"]:
         data["source"] = previous_source
 
     data["_valid"] = found_field
@@ -152,6 +158,15 @@ class AudioBridgeAPI:
             zone_id = int(match.group(2))
             volume_status[zone_id] = int(match.group(3))
         return volume_status
+
+    async def get_group_status(self, controller_id: int) -> dict[int, int]:
+        """Consulta a associação das zonas aos grupos do controlador."""
+        res = await self.send_query(f"{controller_id}0PT")
+        group_status = {}
+        for match in re.finditer(r"<(?:\s*)?(\d)(\d)PT(\d{2})PR", res):
+            zone_id = int(match.group(2))
+            group_status[zone_id] = int(match.group(3))
+        return group_status
 
     async def set_power(self, controller_id: int, zone_id: int, state: bool):
         val = "01" if state else "00"

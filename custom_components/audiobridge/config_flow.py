@@ -3,15 +3,19 @@ from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import callback
 import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers import selector
 
 from .audiobridge_api import AudioBridgeAPI
 from .const import (
+    DEFAULT_GROUP_NAMES,
     DEFAULT_PORT,
     DEFAULT_SOURCE_NAMES,
     DEFAULT_ZONE_NAMES,
     DOMAIN,
+    GROUP_COUNT,
     SOURCE_COUNT,
     ZONE_COUNT,
+    parse_group_zone_ids,
 )
 
 
@@ -54,15 +58,26 @@ class AudioBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_names(self, user_input=None):
         if user_input is not None:
-            return self.async_create_entry(
-                title=f"AudioBRIDGE ({self._device_data[CONF_HOST]})",
-                data=self._device_data,
-                options=user_input,
-            )
+            self._names_data = user_input
+            return await self.async_step_groups()
 
         return self.async_show_form(
             step_id="names",
             data_schema=_names_schema(),
+        )
+
+    async def async_step_groups(self, user_input=None):
+        if user_input is not None:
+            options = {**self._names_data, **user_input}
+            return self.async_create_entry(
+                title=f"AudioBRIDGE ({self._device_data[CONF_HOST]})",
+                data=self._device_data,
+                options=options,
+            )
+
+        return self.async_show_form(
+            step_id="groups",
+            data_schema=_groups_schema(),
         )
 
     @staticmethod
@@ -72,15 +87,26 @@ class AudioBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class AudioBridgeOptionsFlowHandler(config_entries.OptionsFlow):
-    """Permite personalizar os nomes das zonas e entradas nas opções da integração."""
+    """Permite personalizar os nomes das zonas, entradas e grupos nas opções da integração."""
 
     async def async_step_init(self, user_input=None):
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            self._names_data = user_input
+            return await self.async_step_groups()
 
         return self.async_show_form(
             step_id="init",
             data_schema=_names_schema(self.config_entry.options),
+        )
+
+    async def async_step_groups(self, user_input=None):
+        if user_input is not None:
+            data = {**self._names_data, **user_input}
+            return self.async_create_entry(title="", data=data)
+
+        return self.async_show_form(
+            step_id="groups",
+            data_schema=_groups_schema(self.config_entry.options),
         )
 
 
@@ -95,5 +121,36 @@ def _names_schema(options=None):
     for index in range(1, SOURCE_COUNT + 1):
         key = f"source_{index}_name"
         schema[vol.Required(key, default=options.get(key, DEFAULT_SOURCE_NAMES[key]))] = str
+
+    return vol.Schema(schema)
+
+
+def _groups_schema(options=None):
+    options = options or {}
+    schema = {}
+    zone_options = [
+        {"value": str(zone_id), "label": f"Zona {zone_id}"}
+        for zone_id in range(1, ZONE_COUNT + 1)
+    ]
+
+    for index in range(1, GROUP_COUNT + 1):
+        name_key = f"group_{index}_name"
+        zones_key = f"group_{index}_zones"
+        default_zones = options.get(zones_key, [])
+        if isinstance(default_zones, str):
+            default_zones = [str(zone_id) for zone_id in parse_group_zone_ids(default_zones)]
+        elif default_zones is None:
+            default_zones = []
+        else:
+            default_zones = [str(zone_id) for zone_id in parse_group_zone_ids(default_zones)]
+
+        schema[vol.Optional(name_key, default=options.get(name_key, DEFAULT_GROUP_NAMES[name_key]))] = str
+        schema[vol.Optional(zones_key, default=default_zones)] = selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=zone_options,
+                multiple=True,
+                custom_value=False,
+            )
+        )
 
     return vol.Schema(schema)

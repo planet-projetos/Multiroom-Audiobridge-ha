@@ -8,7 +8,15 @@ from homeassistant.const import CONF_HOST
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DEFAULT_SOURCE_NAMES, DEFAULT_ZONE_NAMES, DOMAIN, SOURCES
+from .const import (
+    DEFAULT_GROUP_NAMES,
+    DEFAULT_SOURCE_NAMES,
+    DEFAULT_ZONE_NAMES,
+    DOMAIN,
+    GROUP_COUNT,
+    SOURCES,
+    parse_group_zone_ids,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,7 +58,158 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             )
         )
 
+    for group_id in range(1, GROUP_COUNT + 1):
+        group_name = config_entry.options.get(
+            f"group_{group_id}_name",
+            DEFAULT_GROUP_NAMES[f"group_{group_id}_name"],
+        )
+        zone_ids = parse_group_zone_ids(
+            config_entry.options.get(f"group_{group_id}_zones", [])
+        )
+        if zone_ids:
+            entities.append(
+                AudioBridgeZoneGroup(
+                    coordinator=coordinator,
+                    api=api,
+                    controller_id=1,
+                    group_id=group_id,
+                    entry_id=config_entry.entry_id,
+                    host=host,
+                    model_name=model_name,
+                    group_name=group_name,
+                    zone_ids=zone_ids,
+                    source_names=source_names,
+                )
+            )
+
     async_add_entities(entities)
+
+
+class AudioBridgeZoneGroup(CoordinatorEntity, MediaPlayerEntity):
+    """Representa um grupo de zonas como uma entidade única."""
+
+    def __init__(
+        self,
+        coordinator,
+        api,
+        controller_id: int,
+        group_id: int,
+        entry_id: str,
+        host: str,
+        model_name: str,
+        group_name: str,
+        zone_ids: list[int],
+        source_names: dict[int, str],
+    ):
+        super().__init__(coordinator)
+        self._api = api
+        self._controller_id = controller_id
+        self._group_id = group_id
+        self._entry_id = entry_id
+        self._host = host
+        self._model_name = model_name
+        self._source_names = source_names
+        self._zone_ids = zone_ids
+
+        self._attr_name = group_name
+        self._attr_unique_id = f"audiobridge_{entry_id}_group_{group_id}"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._entry_id)},
+            name=f"AudioBRIDGE ({self._host})",
+            manufacturer="AudioBRIDGE",
+            model=self._model_name,
+            configuration_url=f"http://{self._host}",
+        )
+
+    @property
+    def supported_features(self) -> MediaPlayerEntityFeature:
+        return (
+            MediaPlayerEntityFeature.VOLUME_SET
+            | MediaPlayerEntityFeature.VOLUME_STEP
+            | MediaPlayerEntityFeature.VOLUME_MUTE
+            | MediaPlayerEntityFeature.TURN_ON
+            | MediaPlayerEntityFeature.TURN_OFF
+            | MediaPlayerEntityFeature.SELECT_SOURCE
+        )
+
+    @property
+    def zone_data(self):
+        data = []
+        for zone_id in self._zone_ids:
+            if self.coordinator.data and zone_id in self.coordinator.data:
+                data.append(self.coordinator.data[zone_id])
+        return data
+
+    @property
+    def state(self) -> MediaPlayerState:
+        if not self.zone_data:
+            return MediaPlayerState.OFF
+        if any(zone.get("power", False) for zone in self.zone_data):
+            return MediaPlayerState.ON
+        return MediaPlayerState.OFF
+
+    @property
+    def volume_level(self) -> float | None:
+        active = [zone.get("volume", 0) for zone in self.zone_data if zone]
+        if not active:
+            return None
+        avg = sum(active) / len(active)
+        return min(max(avg / float(MAX_VOLUME_LEVEL), 0.0), 1.0)
+
+    @property
+    def is_volume_muted(self) -> bool:
+        return all(zone.get("mute", False) for zone in self.zone_data) if self.zone_data else False
+
+    @property
+    def source(self) -> str:
+        sources = []
+        for zone in self.zone_data:
+            current = zone.get("source", 1)
+            sources.append(self._source_names.get(current, DEFAULT_SOURCE_NAMES[f"source_{current}_name"]))
+        if not sources:
+            return DEFAULT_SOURCE_NAMES["source_1_name"]
+        if len(set(sources)) == 1:
+            return sources[0]
+        return "Múltiplas fontes"
+
+    @property
+    def source_list(self) -> list[str]:
+        return list(self._source_names.values())
+
+    async def async_turn_on(self):
+        for zone_id in self._zone_ids:
+            await self._api.set_power(self._controller_id, zone_id, True)
+        await self.coordinator.async_request_refresh()
+
+    async def async_turn_off(self):
+        for zone_id in self._zone_ids:
+            await self._api.set_power(self._controller_id, zone_id, False)
+        await self.coordinator.async_request_refresh()
+
+    async def async_set_volume_level(self, volume: float):
+        vol_38 = int(round(volume * MAX_VOLUME_LEVEL))
+        vol_38 = min(max(vol_38, 0), MAX_VOLUME_LEVEL)
+        for zone_id in self._zone_ids:
+            await self._api.set_volume(self._controller_id, zone_id, vol_38)
+        await self.coordinator.async_request_refresh()
+
+    async def async_mute_volume(self, mute: bool):
+        for zone_id in self._zone_ids:
+            await self._api.set_mute(self._controller_id, zone_id, mute)
+        await self.coordinator.async_request_refresh()
+
+    async def async_select_source(self, source: str):
+        source_id = next(
+            (src_id for src_id, name in self._source_names.items() if name == source),
+            None,
+        )
+        if source_id is not None:
+            for zone_id in self._zone_ids:
+                await self._api.set_source(self._controller_id, zone_id, source_id)
+            await self.coordinator.async_request_refresh()
 
 
 class AudioBridgeZone(CoordinatorEntity, MediaPlayerEntity):

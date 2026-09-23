@@ -8,6 +8,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from custom_components.audiobridge import config_flow
+from custom_components.audiobridge.const import parse_group_zone_ids
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "custom_components" / "audiobridge" / "audiobridge_api.py"
 MODULE_SPEC = importlib.util.spec_from_file_location("audiobridge_api_under_test", MODULE_PATH)
@@ -39,6 +40,29 @@ def test_options_flow_handler_can_be_initialized_without_assigning_config_entry(
     flow = config_flow.AudioBridgeOptionsFlowHandler()
 
     assert flow is not None
+
+
+def test_parse_group_zone_ids_handles_ranges_and_lists():
+    assert parse_group_zone_ids("1-3,5,8") == [1, 2, 3, 5, 8]
+    assert parse_group_zone_ids([1, "3-4", 8]) == [1, 3, 4, 8]
+
+
+def test_groups_schema_includes_group_fields():
+    schema = config_flow._groups_schema()
+
+    assert "group_1_name" in schema.schema
+    assert "group_1_zones" in schema.schema
+    assert "group_4_name" in schema.schema
+    assert "group_4_zones" in schema.schema
+
+
+def test_parse_zone_status_response_reads_group_field():
+    payload = "< 11PT02PR01MU00VO09CH03"
+
+    data = parse_zone_status_response(payload)
+
+    assert data["group"] == 2
+    assert data["source"] == 3
 
 
 def test_parse_zone_status_response_reads_source_from_ch_field():

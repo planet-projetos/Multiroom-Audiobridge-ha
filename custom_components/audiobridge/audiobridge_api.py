@@ -12,6 +12,7 @@ class AudioBridgeAPI:
 
     async def _send_raw(self, payload: str) -> str:
         """Envia comandos via Telnet e trata a resposta bruta do equipamento."""
+        writer = None
         try:
             reader, writer = await asyncio.wait_for(
                 asyncio.open_connection(self.host, self.port), timeout=5
@@ -19,28 +20,25 @@ class AudioBridgeAPI:
 
             writer.write(f"{payload}\r\n".encode("utf-8"))
             await writer.drain()
-            await asyncio.sleep(0.1)
+            chunks = []
+            while True:
+                try:
+                    data = await asyncio.wait_for(reader.read(1024), timeout=0.5)
+                except asyncio.TimeoutError:
+                    break
+                if not data:
+                    break
+                chunks.append(data)
 
-            data = await asyncio.wait_for(reader.read(1024), timeout=5)
-            response = data.decode("utf-8", errors="ignore").strip()
+            response = b"".join(chunks).decode("utf-8", errors="ignore")
+            response_lines = [
+                line.strip()
+                for line in response.splitlines()
+                if line.strip() and "Welcome to telnet" not in line
+            ]
+            response = "\n".join(response_lines)
 
-            if "Welcome to telnet" in response:
-                lines = response.splitlines()
-                clean_lines = [
-                    line.strip()
-                    for line in lines
-                    if "Welcome to telnet" not in line and line.strip()
-                ]
-                if clean_lines:
-                    response = clean_lines[0]
-                else:
-                    extra = await asyncio.wait_for(reader.read(1024), timeout=5)
-                    response = extra.decode("utf-8", errors="ignore").strip()
-
-            writer.close()
-            await writer.wait_closed()
-
-            _LOGGER.warning("RAW RESPONSE: %r", response)
+            _LOGGER.debug("RAW RESPONSE: %r", response)
             _LOGGER.debug(
                 "Enviado para AudioBRIDGE (%s): %s | Resposta: %s",
                 self.host,
@@ -64,20 +62,26 @@ class AudioBridgeAPI:
                 err,
             )
             return ""
+        finally:
+            if writer is not None:
+                writer.close()
+                await writer.wait_closed()
 
     async def send_command(self, command: str) -> str:
-        """Envia um comando de ação para a matriz no formato bruto aceito pelo equipamento."""
-        return await self._send_raw(command)
+        """Envia um comando de ação usando o prefixo do protocolo."""
+        return await self._send_raw(f"> {command}")
 
     async def send_query(self, query: str) -> str:
-        """Envia um comando de consulta para a matriz no formato bruto aceito pelo equipamento."""
-        return await self._send_raw(query)
+        """Envia um comando de consulta usando o prefixo do protocolo."""
+        return await self._send_raw(f"# {query}")
 
     async def get_model(self) -> str:
         """Consulta o modelo do equipamento."""
-        res = await self.send_query("10M")
+        res = await self.send_query("DEV")
         if res:
-            return res.replace("<", "").replace(">", "").strip()
+            model_match = re.search(r"MODEL\s+(.+?)(?:\s+V[\d.]+)?$", res, re.MULTILINE)
+            if model_match:
+                return model_match.group(1).strip()
         return "AudioBRIDGE Matrix"
 
     async def get_zone_status(self, controller_id: int, zone_id: int) -> dict:
@@ -93,25 +97,16 @@ class AudioBridgeAPI:
             "source": 1,
         }
 
-        if "PR" in res:
-            pr_match = re.search(r"PR(\d{2})", res)
-            if pr_match:
-                data["power"] = pr_match.group(1) == "01"
-
-        if "MU" in res:
-            mu_match = re.search(r"MU(\d{2})", res)
-            if mu_match:
-                data["mute"] = mu_match.group(1) == "01"
-
-        if "VO" in res:
-            vo_match = re.search(r"VO(\d{2})", res)
-            if vo_match:
-                data["volume"] = int(vo_match.group(1))
-
-        if "CH" in res:
-            ch_match = re.search(r"CH(\d{2})", res)
-            if ch_match:
-                data["source"] = int(ch_match.group(1))
+        for field, pattern in (
+            ("power", r"PR(\d{2})"),
+            ("mute", r"MU(\d{2})"),
+            ("volume", r"VO(\d{2})"),
+            ("source", r"CH(\d{2})"),
+        ):
+            match = re.search(pattern, res)
+            if match:
+                value = int(match.group(1))
+                data[field] = value == 1 if field in ("power", "mute") else value
 
         return data
 

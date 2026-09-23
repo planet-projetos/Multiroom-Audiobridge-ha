@@ -13,6 +13,7 @@ def parse_zone_status_response(response: str, previous_source: int | None = None
         "volume": 0,
         "source": previous_source if previous_source is not None else 1,
         "_valid": False,
+        "_source_confirmed": False,
     }
     found_field = False
 
@@ -33,6 +34,7 @@ def parse_zone_status_response(response: str, previous_source: int | None = None
         elif field == "source":
             if 1 <= value <= 8:
                 data[field] = value
+                data["_source_confirmed"] = True
             elif previous_source is not None:
                 data[field] = previous_source
             else:
@@ -40,7 +42,7 @@ def parse_zone_status_response(response: str, previous_source: int | None = None
         else:
             data[field] = value
 
-    if previous_source is not None and not re.search(r"(?i)(?:^|[^A-Z])CH(?:\s*)0*(\d{1,2})(?!\d)", response):
+    if previous_source is not None and not data["_source_confirmed"]:
         data["source"] = previous_source
 
     data["_valid"] = found_field

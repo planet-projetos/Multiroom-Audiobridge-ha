@@ -15,6 +15,7 @@ def test_parse_zone_status_response_reads_source_from_ch_field():
     data = parse_zone_status_response(payload)
 
     assert data["source"] == 3
+    assert data["_source_confirmed"] is True
     assert data["power"] is True
     assert data["mute"] is False
     assert data["volume"] == 9
@@ -27,5 +28,6 @@ def test_parse_zone_status_response_keeps_previous_source_when_ch_missing():
     data = parse_zone_status_response(payload, previous_source=previous.get("source"))
 
     assert data["source"] == 5
+    assert data["_source_confirmed"] is False
     assert data["power"] is True
     assert data["volume"] == 9

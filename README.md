@@ -20,6 +20,9 @@ Integração não oficial para controlar matrizes AudioBRIDGE em Home Assistant 
 ## Configuração
 
 Informe o endereço IP/hostname e a porta do controlador AudioBRIDGE.
+Informe na próxima pagina os nomes de zonas e entradas. 
+Informe na próxima pagina os nomes e entidades de cada zona
+Para alterar algum basta usar a opção configurar na pagina da integração
 
 ## Observações
 

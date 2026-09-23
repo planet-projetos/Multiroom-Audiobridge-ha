@@ -5,6 +5,48 @@ import re
 _LOGGER = logging.getLogger(__name__)
 
 
+def parse_zone_status_response(response: str, previous_source: int | None = None) -> dict | None:
+    """Parsea a resposta de status da zona do AudioBRIDGE."""
+    data = {
+        "power": False,
+        "mute": False,
+        "volume": 0,
+        "source": previous_source if previous_source is not None else 1,
+        "_valid": False,
+    }
+    found_field = False
+
+    for field, pattern in (
+        ("power", r"(?i)(?:^|[^A-Z])PR(?:\s*)0*(\d{1,2})(?!\d)"),
+        ("mute", r"(?i)(?:^|[^A-Z])MU(?:\s*)0*(\d{1,2})(?!\d)"),
+        ("volume", r"(?i)(?:^|[^A-Z])VO(?:\s*)0*(\d{1,2})(?!\d)"),
+        ("source", r"(?i)(?:^|[^A-Z])CH(?:\s*)0*(\d{1,2})(?!\d)"),
+    ):
+        match = re.search(pattern, response)
+        if not match:
+            continue
+
+        found_field = True
+        value = int(match.group(1))
+        if field in ("power", "mute"):
+            data[field] = bool(value)
+        elif field == "source":
+            if 1 <= value <= 8:
+                data[field] = value
+            elif previous_source is not None:
+                data[field] = previous_source
+            else:
+                data[field] = 1
+        else:
+            data[field] = value
+
+    if previous_source is not None and not re.search(r"(?i)(?:^|[^A-Z])CH(?:\s*)0*(\d{1,2})(?!\d)", response):
+        data["source"] = previous_source
+
+    data["_valid"] = found_field
+    return data if found_field else None
+
+
 class AudioBridgeAPI:
     def __init__(self, host: str, port: int = 23):
         self.host = host
@@ -84,35 +126,14 @@ class AudioBridgeAPI:
                 return model_match.group(1).strip()
         return "AudioBRIDGE Matrix"
 
-    async def get_zone_status(self, controller_id: int, zone_id: int) -> dict | None:
+    async def get_zone_status(
+        self, controller_id: int, zone_id: int, previous_source: int | None = None
+    ) -> dict | None:
         """Consulta o estado completo de uma zona usando o formato de zona do equipamento."""
         zone_target = int(f"{controller_id}{zone_id}")
         raw_cmd = f"{zone_target}PT00"
         res = await self.send_query(raw_cmd)
-
-        data = {
-            "power": False,
-            "mute": False,
-            "volume": 0,
-            "source": 1,
-            "_valid": False,
-        }
-        found_field = False
-
-        for field, pattern in (
-            ("power", r"PR\s*(\d{1,2})"),
-            ("mute", r"MU\s*(\d{1,2})"),
-            ("volume", r"VO\s*(\d{1,2})"),
-            ("source", r"CH\s*(\d{1,2})"),
-        ):
-            match = re.search(pattern, res)
-            if match:
-                found_field = True
-                value = int(match.group(1))
-                data[field] = value == 1 if field in ("power", "mute") else value
-
-        data["_valid"] = found_field
-        return data if found_field else None
+        return parse_zone_status_response(res, previous_source=previous_source)
 
     async def get_power_status(self, controller_id: int) -> dict[int, bool]:
         """Consulta o power de todas as zonas usando a consulta global do equipamento."""

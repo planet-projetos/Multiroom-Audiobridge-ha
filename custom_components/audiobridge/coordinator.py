@@ -26,9 +26,14 @@ class AudioBridgeDataUpdateCoordinator(DataUpdateCoordinator):
             power_status = await self.api.get_power_status(1)
             volume_status = await self.api.get_volume_status(1)
             for zone_id in range(1, 9):
-                zone_data = await self.api.get_zone_status(1, zone_id)
+                previous_zone_data = previous_data.get(zone_id, {})
+                zone_data = await self.api.get_zone_status(
+                    1,
+                    zone_id,
+                    previous_zone_data.get("source"),
+                )
                 if zone_data is None:
-                    zone_data = dict(previous_data.get(zone_id, {}))
+                    zone_data = dict(previous_zone_data)
                 if zone_id in power_status:
                     zone_data["power"] = power_status[zone_id]
                     zone_data["_valid"] = True

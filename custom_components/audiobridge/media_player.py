@@ -89,8 +89,6 @@ class AudioBridgeZone(CoordinatorEntity, MediaPlayerEntity):
             MediaPlayerEntityFeature.VOLUME_SET
             | MediaPlayerEntityFeature.VOLUME_STEP
             | MediaPlayerEntityFeature.VOLUME_MUTE
-            | MediaPlayerEntityFeature.TURN_ON
-            | MediaPlayerEntityFeature.TURN_OFF
             | MediaPlayerEntityFeature.SELECT_SOURCE
         )
 
@@ -119,8 +117,8 @@ class AudioBridgeZone(CoordinatorEntity, MediaPlayerEntity):
 
     @property
     def volume_level(self) -> float | None:
-        """Nível de volume de 0.0 a 1.0 (exibido apenas quando a zona está ligada)."""
-        if self.state != MediaPlayerState.ON:
+        """Nível de volume normalizado de 0.0 a 1.0."""
+        if "volume" not in self.zone_data:
             return None
         raw_vol = self.zone_data.get("volume", 0)
         return min(max(raw_vol / float(MAX_VOLUME_LEVEL), 0.0), 1.0)

@@ -100,10 +100,10 @@ class AudioBridgeAPI:
         found_field = False
 
         for field, pattern in (
-            ("power", r"PR(\d{2})"),
-            ("mute", r"MU(\d{2})"),
-            ("volume", r"VO(\d{2})"),
-            ("source", r"CH(\d{2})"),
+            ("power", r"PR\s*(\d{1,2})"),
+            ("mute", r"MU\s*(\d{1,2})"),
+            ("volume", r"VO\s*(\d{1,2})"),
+            ("source", r"CH\s*(\d{1,2})"),
         ):
             match = re.search(pattern, res)
             if match:

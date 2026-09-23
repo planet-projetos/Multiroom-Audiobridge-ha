@@ -42,6 +42,12 @@ def test_options_flow_handler_can_be_initialized_without_assigning_config_entry(
     assert flow is not None
 
 
+def test_options_flow_factory_uses_framework_managed_config_entry():
+    flow = config_flow.AudioBridgeConfigFlow.async_get_options_flow(object())
+
+    assert isinstance(flow, config_flow.AudioBridgeOptionsFlowHandler)
+
+
 def test_parse_group_zone_ids_handles_ranges_and_lists():
     assert parse_group_zone_ids("1-3,5,8") == [1, 2, 3, 5, 8]
     assert parse_group_zone_ids([1, "3-4", 8]) == [1, 3, 4, 8]

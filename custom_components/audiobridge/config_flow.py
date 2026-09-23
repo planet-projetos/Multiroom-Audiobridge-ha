@@ -83,7 +83,7 @@ class AudioBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
-        return AudioBridgeOptionsFlowHandler(config_entry)
+        return AudioBridgeOptionsFlowHandler()
 
 
 class AudioBridgeOptionsFlowHandler(config_entries.OptionsFlow):
